@@ -1,0 +1,1894 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Portal Médico — UAC Tele-Rehabilitación (Historial, KPIs y Diagnóstico IA)</title>
+  <!-- Socket.IO -->
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background-color: #0b0b14; color: #fff; min-height: 100vh; padding: 20px; display: flex; justify-content: center; align-items: flex-start; }
+    
+    #loginContainer { width: 100%; max-width: 400px; background: #141422; padding: 30px; border-radius: 12px; border: 1px solid rgba(0,210,106,0.3); margin-top: 10vh; }
+    #medicoPanel { display: none; width: 100%; max-width: 1200px; background: #141422; padding: 30px; border-radius: 12px; border: 1px solid rgba(0,210,106,0.3); }
+    
+    .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px; }
+    .panel-header img { height: 50px; width: auto; object-fit: contain; }
+    
+    #emergencyAlertBanner {
+      display: none;
+      background: rgba(255, 77, 77, 0.18);
+      border: 1.5px solid #ff4d4d;
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      animation: pulseAlert 1.2s infinite alternate;
+    }
+    #emergencyAlertBanner.active { display: flex; justify-content: space-between; align-items: center; }
+    @keyframes pulseAlert {
+      from { border-color: rgba(255,77,77,0.4); box-shadow: 0 0 5px rgba(255,77,77,0.2); }
+      to { border-color: #ff4d4d; box-shadow: 0 0 18px rgba(255,77,77,0.5); }
+    }
+
+    h1, h2, h3 { color: #00d26a; }
+    h2 { font-size: 1.2rem; }
+    h3 { font-size: 0.9rem; margin-bottom: 10px; color: #a0a0c0; text-transform: uppercase; letter-spacing: 0.5px; }
+    
+    .form-group { margin-bottom: 12px; }
+    label { display: block; font-size: 0.8rem; color: #a0a0c0; margin-bottom: 4px; }
+    input, select, textarea { width: 100%; padding: 8px 10px; background: #1a1a2e; border: 1px solid #303050; color: #fff; border-radius: 6px; font-size: 0.85rem; }
+    textarea { resize: vertical; }
+    
+    button { background-color: #00d26a; color: #0f0f1b; border: none; padding: 10px 16px; font-weight: bold; border-radius: 6px; cursor: pointer; font-size: 0.85rem; transition: background 0.2s; }
+    button:hover { background-color: #00b359; }
+    .btn-secondary { background: #303050; color: #fff; }
+    .btn-secondary:hover { background: #404070; }
+    .btn-danger { background: rgba(255, 77, 77, 0.2); color: #ff4d4d; border: 1px solid #ff4d4d; }
+    .btn-call { background: rgba(0, 210, 106, 0.2); color: #00d26a; border: 1px solid #00d26a; }
+    .btn-call:hover { background: rgba(0, 210, 106, 0.35); }
+    .btn-info { background: rgba(52, 152, 219, 0.2); color: #3498db; border: 1px solid #3498db; }
+    
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 15px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    
+    .status-badge { display: inline-block; padding: 5px 12px; border-radius: 20px; font-size: 0.75rem; background: rgba(0,210,106,0.2); color: #00d26a; }
+    .auth-banner { margin-top: 15px; padding: 12px; border-radius: 6px; text-align: center; font-weight: bold; font-size: 0.9rem; display: none; }
+    .auth-active { background: rgba(0,210,106,0.15); color: #00d26a; border: 1px solid #00d26a; }
+
+    .tabs-nav { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid #303050; padding-bottom: 10px; flex-wrap: wrap; }
+    .tab-btn { background: transparent; color: #a0a0c0; border: 1px solid transparent; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+    .tab-btn.active { background: rgba(0,210,106,0.15); color: #00d26a; border-color: #00d26a; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .patients-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
+    .patients-table th, .patients-table td { padding: 10px; text-align: left; border-bottom: 1px solid #202035; }
+    .patients-table th { color: #a0a0c0; font-size: 0.75rem; text-transform: uppercase; }
+    .cred-badge { font-family: monospace; background: rgba(0,210,106,0.1); color: #00d26a; padding: 3px 6px; border-radius: 4px; }
+    .calc-edad { font-size: 0.75rem; color: #00d26a; margin-top: 3px; display: block; }
+
+    #historialClinicoModal { display: none; position: fixed; inset: 0; background: rgba(11, 11, 20, 0.94); z-index: 1200; padding: 25px; overflow-y: auto; justify-content: center; align-items: flex-start; }
+    .history-container { width: 100%; max-width: 1050px; background: #141422; border: 1px solid rgba(0,210,106,0.4); border-radius: 12px; padding: 25px; margin: auto; }
+    
+    .kpi-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
+    .kpi-card { background: #1a1a2e; border: 1px solid #303050; border-radius: 8px; padding: 14px; text-align: center; }
+    .kpi-card .val { font-size: 1.5rem; font-weight: bold; color: #00d26a; margin-top: 4px; font-family: monospace; }
+    .kpi-card .lbl { font-size: 0.75rem; color: #a0a0c0; text-transform: uppercase; }
+
+    .score-badge-good { color: #2ecc71; font-weight: bold; }
+    .score-badge-fair { color: #f39c12; font-weight: bold; }
+    .score-badge-bad { color: #e74c3c; font-weight: bold; }
+
+    #liveCallModal { display: none; position: fixed; inset: 0; background: rgba(11, 11, 20, 0.92); z-index: 1000; padding: 25px; flex-direction: column; align-items: center; justify-content: center; }
+    .call-container { width: 100%; max-width: 900px; background: #141422; border: 1px solid rgba(0,210,106,0.4); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 15px; }
+    .call-stages { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; min-height: 380px; }
+    .call-box { background: #0b0b14; border: 1px solid #303050; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; padding: 10px; text-align: center; }
+    .call-box video { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; }
+    .mode-tag { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,0.7); color: #00d26a; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-family: monospace; z-index: 5; border: 1px solid rgba(0,210,106,0.3); }
+  </style>
+  <style>
+    #callStagesGrid { grid-template-columns: 2.4fr 1fr; grid-template-rows: 1fr 1fr; min-height: 470px; }
+    #callStagesGrid > .call-box:nth-child(1) { grid-column: 2; grid-row: 1; }
+    #callStagesGrid > .call-box:nth-child(2) { grid-column: 1; grid-row: 1 / span 2; }
+    #callStagesGrid > .call-box:nth-child(3) { grid-column: 2; grid-row: 2; }
+  </style>
+  <style>
+    @media print {
+      body { background: #fff !important; color: #000 !important; display: block !important; padding: 0 !important; }
+      body > *:not(#historialClinicoModal) { display: none !important; }
+      #historialClinicoModal { display: block !important; position: static !important; background: #fff !important; padding: 0 !important; }
+      .history-container { background: #fff !important; border: 0 !important; max-width: 100% !important; padding: 0 !important; }
+      .history-container * { color: #000 !important; background: transparent !important; border-color: #999 !important; }
+      .no-print { display: none !important; }
+      #listaApuntes, #listaTerapias, #listaEventos { max-height: none !important; overflow: visible !important; }
+      div[style*="overflow"] { max-height: none !important; overflow: visible !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- LOGIN MÉDICO -->
+  <div id="loginContainer">
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="./escudo_uac.png" alt="Escudo UAC" style="height: 60px; object-fit: contain; margin-bottom: 10px;">
+      <h1>Acceso Médico UAC</h1>
+    </div>
+    <p style="font-size: 0.85rem; color: #a0a0c0; margin-bottom: 20px; text-align: center;">Credencial clínica de acceso</p>
+    <div class="form-group">
+      <label>Usuario</label>
+      <input type="text" id="medUser" placeholder="Usuario" autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label>Contraseña</label>
+      <input type="password" id="medPin" placeholder="•••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')loginMedico()">
+    </div>
+    <button onclick="loginMedico()" style="width: 100%; margin-top: 10px;">Ingresar al Panel</button>
+    <p id="loginError" style="color: #ff4d4d; font-size: 0.8rem; margin-top: 10px; display: none; text-align: center;">Credenciales inválidas.</p>
+  </div>
+
+  <!-- PANEL CLÍNICO GENERAL -->
+  <div id="medicoPanel">
+    <div id="emergencyAlertBanner">
+      <div>
+        <span style="color:#ff4d4d; font-weight:bold; font-size:0.85rem;">🚨 URGENCIA / AYUDA MÉDICA SOLICITADA</span>
+        <p id="emergencyAlertText" style="font-size:0.8rem; color:#fff; margin-top:3px;">Paciente solicita asistencia clínica en vivo.</p>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn-danger" style="padding:8px 14px;" onclick="unirMedicoAUrgencia()">🟢 Entrar a Terapia / Intervenir</button>
+        <button class="btn-secondary" style="padding:8px 12px;" onclick="cerrarBannerAlertaMedico()">Descartar / Silenciar</button>
+      </div>
+    </div>
+
+    <div class="panel-header">
+      <div>
+        <span class="status-badge" id="serverConnectionStatus">SERVIDOR: CONECTANDO...</span>
+        <button class="btn-secondary" style="padding:4px 10px; font-size:0.7rem; margin-left:8px;" onclick="cerrarSesionMedico()">Cerrar sesión</button>
+        <h2 style="margin-top: 8px;">Control de Historias Clínicas, Métricas y Desempeño por Sesión</h2>
+      </div>
+      <img src="./escudo_uac.png" alt="Escudo UAC">
+    </div>
+
+    <div class="tabs-nav">
+      <button class="tab-btn active" onclick="cambiarPestaña('tab-formulario', this)">➕ Nueva / Editar Ficha Paciente</button>
+      <button class="tab-btn" onclick="cambiarPestaña('tab-lista', this); renderizarListaPacientes();">📋 Pacientes en Terapia (<span id="contadorPacientes">0</span>)</button>
+    </div>
+
+    <!-- PESTAÑA 1: FORMULARIO -->
+    <div id="tab-formulario" class="tab-content active">
+      <h3>1. Datos de Identificación (Cédula = Credencial de Paciente)</h3>
+      <div class="grid-3">
+        <div class="form-group"><label>Nombres</label><input type="text" id="patNombre" value="Carlos Eduardo"></div>
+        <div class="form-group"><label>Apellidos</label><input type="text" id="patApellido" value="Martínez Pérez"></div>
+        <div class="form-group"><label>Cédula / ID (Acceso Paciente)</label><input type="text" id="patDoc" value="1045238910"></div>
+      </div>
+      <div class="grid-3">
+        <div class="form-group">
+          <label>Fecha de Nacimiento</label>
+          <input type="date" id="patNacimiento" value="1992-05-14" onchange="calcularEdadAutomatica()">
+          <span id="edadCalculadaDisplay" class="calc-edad">Edad calculada: 34 años</span>
+        </div>
+        <div class="form-group">
+          <label>Género</label>
+          <select id="patGenero">
+            <option value="Masculino">Masculino</option>
+            <option value="Femenino">Femenino</option>
+            <option value="Otro">Otro</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Nivel de Dolor Basal (EVA 0-10)</label>
+          <input type="number" id="patEva" min="0" max="10" value="3">
+        </div>
+      </div>
+
+      <h3 style="margin-top: 15px;">2. Anamnesis y Segmento Comprometido</h3>
+      <div class="grid-3">
+        <div class="form-group">
+          <label>Patología / Condición de Base</label>
+          <select id="patPatologia">
+            <option value="RIGIDEZ_POSTRAUMA">Rigidez articular post-trauma / fractura</option>
+            <option value="ACV_HEMI_SUBAGUDA">Hemiparesia post-ACV (Fase subaguda)</option>
+            <option value="TENDINOPATIA_HOMBRO">Tendinopatía / Limitación manguito rotador</option>
+            <option value="POSTOP_CODO">Postoperatorio de codo (control ROM)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Lado Afectado</label>
+          <select id="patLado">
+            <option value="Derecho">Miembro Superior Derecho</option>
+            <option value="Izquierdo">Miembro Superior Izquierdo</option>
+            <option value="Bilateral">Bilateral</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Articulación Diana</label>
+          <select id="patArticulacion">
+            <option value="Codo">Codo</option>
+            <option value="Hombro">Hombro</option>
+            <option value="Muñeca">Muñeca</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Nota / Observación Clínica</label>
+        <textarea id="patNota" rows="2">Paciente con limitación para la flexión completa de codo derecho a los 45 días post-trauma.</textarea>
+      </div>
+
+      <h3 style="margin-top: 15px;">3. Programación de Rango de Fechas de Terapia (Calendario)</h3>
+      <div class="grid-2">
+        <div class="form-group">
+          <label>Rango de Fechas Asignado</label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div>
+              <label style="font-size:0.75rem;">Fecha Inicio</label>
+              <input type="date" id="rxFechaInicio" value="2026-10-08">
+            </div>
+            <div>
+              <label style="font-size:0.75rem;">Fecha Fin</label>
+              <input type="date" id="rxFechaFin" value="2026-10-16">
+            </div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Rutina / Tipo de Terapia</label>
+          <select id="rxRutina" onchange="actualizarModeloTerapia()">
+            <option value="RX_FLEXOEXT_CODO" data-model="terapia.1.fbx">Flexo-extensión Activa/Asistida de Codo (terapia.1.fbx)</option>
+            <option value="RX_ABDUCCION_HOMBRO" data-model="terapia.1.fbx">Abducción de Hombro en Plano Coronal (terapia.1.fbx)</option>
+            <option value="RX_ROTACION_EXT_INT" data-model="terapia.1.fbx">Rotación / Movilidad en Eje (terapia.1.fbx)</option>
+            <option value="RX_MOV_LIBRE_CONTROL" data-model="terapia.1.fbx">Rango Libre Guiado por IA (ROM Max) (terapia.1.fbx)</option>
+          </select>
+          <small id="modelNameDisplay" style="color:#00d26a; display:block; margin-top:4px; font-family:monospace;">Archivo 3D vinculado: terapia.1.fbx</small>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <button style="flex: 2;" onclick="guardarPacienteEnBaseDatos()">💾 Guardar / Actualizar Paciente en Base de Datos</button>
+        <button style="flex: 1;" class="btn-secondary" onclick="limpiarFormulario()">🔄 Nuevo Registro</button>
+      </div>
+      <div id="authBanner" class="auth-banner auth-active">✅ Paciente guardado y sincronizado con el servidor.</div>
+    </div>
+
+    <!-- PESTAÑA 2: LISTA PACIENTES -->
+    <div id="tab-lista" class="tab-content">
+      <h3>Pacientes Registrados en Sistema de Telerehabilitación</h3>
+      <table class="patients-table">
+        <thead>
+          <tr>
+            <th>Cédula (User / Pass)</th>
+            <th>Paciente</th>
+            <th>Patología / Lado</th>
+            <th>Ventana / Rango Fechas</th>
+            <th>Modelo 3D</th>
+            <th>Historia clínica</th>
+            <th>En Vivo</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tablaPacientesBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- MODAL DE HISTORIAL -->
+  <div id="historialClinicoModal">
+    <div class="history-container">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #303050; padding-bottom: 15px; margin-bottom: 20px;">
+        <div>
+          <span class="status-badge">HISTORIA CLÍNICA DE MONITOREO</span>
+          <h2 id="historialModalTitle" style="margin-top:6px;">Historial Clínico del Paciente</h2>
+        </div>
+        <div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn-info" onclick="exportarCsvVitales()">⬇ Descargar CSV</button>
+          <button class="btn-info" onclick="window.print()">🖨 Imprimir / PDF</button>
+          <button class="btn-secondary" onclick="cerrarModalHistorial()">✕ Cerrar Ventana</button>
+        </div>
+      </div>
+
+      <div id="historiaClinicaCard" style="background:#1a1a2e; border:1px solid #303050; border-radius:8px; padding:16px; margin-bottom:20px;">
+        <h3>Datos del paciente y anamnesis</h3>
+        <div id="historiaClinicaGrid" style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px 18px; margin-top:10px; font-size:0.85rem;"></div>
+      </div>
+
+      <div class="kpi-cards">
+        <div class="kpi-card"><div class="lbl">Terapias realizadas</div><div class="val" id="kpiTotalSesiones">0</div></div>
+        <div class="kpi-card"><div class="lbl">Repeticiones totales</div><div class="val" id="kpiMinutosTotales">0</div></div>
+        <div class="kpi-card"><div class="lbl">Lecturas registradas</div><div class="val" id="kpiPrecisionGlobal">0</div></div>
+        <div class="kpi-card"><div class="lbl">Último dato recibido</div><div class="val" id="kpiRatioEjecucion" style="font-size:1rem;">—</div></div>
+      </div>
+
+      <div style="background:#1a1a2e; border:1px solid #303050; border-radius:8px; padding:16px; margin-bottom:20px;">
+        <h3>Resumen de monitoreo (signos vitales y ángulos)</h3>
+        <div style="overflow-x:auto;">
+          <table class="patients-table" style="margin-top:5px;">
+            <thead>
+              <tr><th>Parámetro</th><th>Última lectura</th><th>Promedio</th><th>Mínimo</th><th>Máximo</th><th>Lecturas</th></tr>
+            </thead>
+            <tbody id="tablaResumenVitales"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="background:#1a1a2e; border:1px solid #303050; border-radius:8px; padding:16px; margin-bottom:20px;">
+        <div class="no-print" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+          <h3 style="margin:0;">Evolución en el tiempo</h3>
+          <select id="selGrafica" style="width:auto;" onchange="renderGrafica()">
+            <option value="pulso">Frecuencia cardíaca (lpm)</option>
+            <option value="respiracion">Frecuencia respiratoria (rpm)</option>
+            <option value="saturacion">Saturación de oxígeno (%)</option>
+            <option value="temperatura">Temperatura (°C)</option>
+            <option value="hombro">Ángulo hombro (°)</option>
+            <option value="codo">Ángulo codo (°)</option>
+            <option value="cadera">Ángulo cadera (°)</option>
+          </select>
+        </div>
+        <div id="graficaVitales" style="width:100%; overflow-x:auto;"></div>
+      </div>
+
+      <div style="background:#1a1a2e; border:1px solid #303050; border-radius:8px; padding:16px; margin-bottom:20px;">
+        <h3>Registro de signos vitales y seguimiento <span style="font-size:0.7rem; color:#a0a0c0; font-weight:normal;">(más recientes primero)</span></h3>
+        <div style="overflow-x:auto; max-height:420px; overflow-y:auto;">
+          <table class="patients-table" style="margin-top:5px;">
+            <thead>
+              <tr>
+                <th>Fecha y hora</th><th>FC (lpm)</th><th>FR (rpm)</th><th>SpO₂ (%)</th><th>Temp (°C)</th>
+                <th>Hombro</th><th>Codo</th><th>Cadera</th><th>Estado</th><th>Día</th><th>Rep.</th><th>Origen</th>
+              </tr>
+            </thead>
+            <tbody id="tablaVitales"></tbody>
+          </table>
+        </div>
+        <button id="btnMasVitales" class="btn-secondary no-print" style="margin-top:8px; display:none;" onclick="vitalesVisibles += 200; renderTablaVitales();">Mostrar más registros</button>
+      </div>
+
+      <div style="background:#1a1a2e; border:1px solid #303050; border-radius:8px; padding:16px; margin-bottom:20px;">
+        <h3>Bitácora de sesiones realizadas</h3>
+        <p id="diagnosticoEvolucionRom" style="font-size:0.85rem; color:#fff; line-height:1.5; margin:4px 0 8px;"></p>
+        <div style="overflow-x:auto;">
+          <table class="patients-table" style="margin-top:5px;">
+            <thead>
+              <tr>
+                <th>Sesión / Fecha</th><th>Día</th><th>Repeticiones</th>
+                <th>FC prom.</th><th>FR prom.</th><th>SpO₂ prom.</th><th>Temp prom.</th><th>Lecturas</th>
+              </tr>
+            </thead>
+            <tbody id="tablaSesionesDetalle"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="background:#1a1a2e; border:1px solid #303050; border-radius:8px; padding:16px; margin-bottom:20px;">
+        <h3>Eventos clínicos (solicitudes de ayuda)</h3>
+        <div id="listaEventos" style="font-size:0.85rem; max-height:200px; overflow-y:auto;"></div>
+      </div>
+
+      <div style="background:#1a1a2e; border:1px solid #303050; border-radius:8px; padding:16px; margin-top:20px;">
+        <h3>🗓️ Terapias programadas <span id="terapiasResumenMedico" style="font-size:0.75rem; color:#a0a0c0; font-weight:normal;"></span></h3>
+        <div style="font-size:0.75rem; color:#a0a0c0; margin-top:4px;">Cada terapia se habilita sola en su fecha. Aquí puedes cambiar la fecha, habilitarla, bloquearla o reabrirla para que el paciente la repita.</div>
+        <div id="listaTerapias" style="margin-top:10px; max-height:260px; overflow-y:auto; font-size:0.85rem;"></div>
+      </div>
+
+      <div style="background:#1a1a2e; border:1px solid #303050; border-radius:8px; padding:16px; margin-top:20px;">
+        <h3>📝 Apuntes del médico</h3>
+        <div id="listaApuntes" style="margin:10px 0; max-height:200px; overflow-y:auto; font-size:0.85rem;"></div>
+        <textarea id="apunteHistorial" rows="3" placeholder="Escribe un nuevo apunte clínico..."></textarea>
+        <div style="margin-top:8px; display:flex; gap:10px; align-items:center;">
+          <button class="btn-call" onclick="guardarApunteHistorial()">💾 Guardar apunte</button>
+          <span id="apunteHistorialEstado" style="font-size:0.75rem; color:#00d26a;"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL DE VIDEOCONFERENCIA -->
+  <div id="liveCallModal">
+    <div class="call-container" style="max-width:1100px; max-height:calc(100vh - 50px); overflow-y:auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #303050; padding-bottom: 12px;">
+        <div>
+          <span class="status-badge" style="background:rgba(0,210,106,0.3);">CONEXIÓN DIRECTA EN VIVO UAC</span>
+          <h3 id="callPatientTitle" style="margin-top:6px; color:#fff;">Paciente: En vivo</h3>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button id="btnToggleMedicoCam" class="btn-call" onclick="alternarVistaMedicoEnVivo()">👨‍⚕️ Activar/Ocultar Cámara Médico</button>
+          <button class="btn-danger" onclick="cerrarSesionEnVivo()">❌ Finalizar Conexión</button>
+        </div>
+      </div>
+
+      <div id="liveMetricsBar" style="display:flex; gap:18px; flex-wrap:wrap; font-family:monospace; font-size:0.8rem; color:#a0a0c0; padding:8px 2px;">
+        <span>Hombro: <b id="mHombro" style="color:#00d26a;">--</b></span>
+        <span>Codo: <b id="mCodo" style="color:#00d26a;">--</b></span>
+        <span>Cadera: <b id="mCadera" style="color:#00d26a;">--</b></span>
+        <span>Repeticiones: <b id="mRep" style="color:#00d26a;">0</b></span>
+        <span>FC: <b id="mPulso" style="color:#00d26a;">--</b></span>
+        <span>Resp: <b id="mResp" style="color:#00d26a;">--</b></span>
+        <span>SpO₂: <b id="mSpO2" style="color:#00d26a;">--</b></span>
+        <span>Temp: <b id="mTemp" style="color:#00d26a;">--</b></span>
+        <span>Terapia: <b id="mEstadoTerapia" style="color:#ffd700;">--</b></span>
+        <span id="mEstadoLlamada" style="color:#ffd700;">Sin llamada</span>
+      </div>
+
+      <div id="liveControlBar" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <span style="font-size:0.75rem; color:#a0a0c0;">Control de la terapia del paciente:</span>
+        <button class="btn-call" style="padding:6px 12px; font-size:0.8rem;" onclick="enviarComandoTerapia('iniciar')">▶ Iniciar</button>
+        <button class="btn-info" style="padding:6px 12px; font-size:0.8rem;" onclick="enviarComandoTerapia('pausar')">⏸ Pausar</button>
+        <button class="btn-call" style="padding:6px 12px; font-size:0.8rem;" onclick="enviarComandoTerapia('continuar')">⏯ Continuar</button>
+        <button class="btn-secondary" style="padding:6px 12px; font-size:0.8rem;" onclick="enviarComandoTerapia('reiniciar')">🔄 Reiniciar</button>
+        <button class="btn-danger" style="padding:6px 12px; font-size:0.8rem;" onclick="enviarComandoTerapia('finalizar')">⏹ Finalizar</button>
+      </div>
+
+      <div class="call-stages" id="callStagesGrid">
+        <div class="call-box" style="position:relative;">
+          <span class="mode-tag">CÁMARA DEL PACIENTE</span>
+          <video id="patientLiveFeedVideo" autoplay playsinline style="width:100%; height:100%; object-fit:cover; border-radius:6px; display:block;"></video>
+          <div id="patientFeedPlaceholder" style="position:absolute; inset:0; background:#0b0b14; display:flex; flex-direction:column; align-items:center; justify-content:center; color:#00d26a; font-family:monospace;">
+            <div style="font-size:3rem;">👤</div>
+            <p style="margin-top:8px;">Esperando flujo del paciente...</p>
+          </div>
+        </div>
+
+        <div class="call-box" id="espejoBox" style="position:relative; overflow:hidden; background:#000;">
+          <span class="mode-tag" style="z-index:6;">PANTALLA DEL PACIENTE (EN VIVO)</span>
+          <button onclick="pantallaCompletaEspejo('espejoBox')" style="position:absolute; top:8px; right:8px; z-index:6; background:rgba(0,0,0,0.7); color:#00d26a; border:1px solid #00d26a; border-radius:4px; padding:4px 10px; font-size:0.75rem;">⛶ Pantalla completa</button>
+          <iframe id="espejoFrame" title="Pantalla del paciente" style="position:absolute; top:0; left:0; width:1280px; height:720px; border:0; transform-origin:0 0;"></iframe>
+        </div>
+
+        <div class="call-box" style="position:relative;">
+          <span class="mode-tag">CÁMARA / RETORNO MÉDICO</span>
+          <video id="doctorLiveVideo" autoplay muted playsinline style="width:100%; height:100%; object-fit:cover; border-radius:6px; display:none;"></video>
+          <div id="doctorCallOverlay" style="color:#a0a0c0; font-size:0.85rem; padding:20px; text-align:center;">
+            <p>Cámara médica inactiva.<br>Haz clic en <strong>"Activar/Ocultar Cámara Médico"</strong>.</p>
+          </div>
+        </div>
+      </div>
+
+      <div style="background:#0b0b14; border:1px solid #303050; border-radius:8px; padding:10px;">
+        <label style="font-size:0.75rem; color:#a0a0c0;">📝 Apunte clínico (se guarda en la historia clínica del paciente)</label>
+        <textarea id="apunteEnVivo" rows="2" placeholder="Escribe aquí tu observación..."></textarea>
+        <div style="display:flex; gap:8px; margin-top:6px; align-items:center; flex-wrap:wrap;">
+          <button class="btn-call" style="padding:6px 12px; font-size:0.8rem;" onclick="guardarApunteEnVivo()">💾 Guardar apunte</button>
+          <button class="btn-info" style="padding:6px 12px; font-size:0.8rem;" onclick="abrirHistorialDesdeLlamada()">📊 Ver historia clínica</button>
+          <span id="apunteEstado" style="font-size:0.75rem; color:#00d26a;"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="observarModal" style="display:none; position:fixed; inset:0; background:#05050a; z-index:1500; flex-direction:column;">
+    <div style="display:flex; align-items:center; gap:14px; padding:10px 16px; background:#0f0f1b; border-bottom:1px solid #303050;">
+      <span id="observarTitulo" style="font-weight:bold; color:#00d26a;">Observando</span>
+      <span id="observarEstado" style="font-size:0.8rem; color:#ffd700;"></span>
+      <span style="flex:1;"></span>
+      <button onclick="pantallaCompletaEspejo('observarBox')" style="background:transparent; color:#00d26a; border:1px solid #00d26a; border-radius:4px; padding:6px 12px; font-size:0.8rem;">⛶ Pantalla completa</button>
+      <button onclick="cerrarObservacion()" style="background:transparent; color:#ff4d4d; border:1px solid #ff4d4d; border-radius:4px; padding:6px 12px; font-size:0.8rem;">✖ Cerrar</button>
+    </div>
+    <div id="observarBox" style="position:relative; flex:1; overflow:hidden; background:#000;">
+      <iframe id="observarFrame" title="Observación del paciente" style="position:absolute; top:0; left:0; width:1280px; height:720px; border:0; transform-origin:0 0;"></iframe>
+    </div>
+  </div>
+
+  <script>
+    let socket = null;
+    let streamMedicoActivo = null;
+    let streamPaciente = null;
+    let peerConnection = null;
+    let candidatosPendientes = [];
+    let pacienteEnLlamadaActual = null;
+    let alertaActual = null;
+    let pacientesEnLinea = new Set();
+    let ultimasMetricas = {};
+    let ultimoEstadoPaciente = {};
+    const espejos = {};
+    let trAvatar = null;
+    let streamAvatarPaciente = null;
+    let historialCedulaActual = null;
+    const ETIQUETAS_ESTADO = {
+      ESPERANDO: 'En espera',
+      PREPARANDO: 'Preparando',
+      TERAPIA: 'En curso',
+      PAUSADA: 'En pausa',
+      REPOSO: 'Finalizada',
+      ALERTA_MEDICA: 'SOS activo',
+      CERRADA: 'Sesión cerrada'
+    };
+    let configuracionIce = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    let iceCargado = false;
+
+    /* ---------- Datos guardados en el SERVIDOR ---------- */
+    let tokenMedico = sessionStorage.getItem('uac_token_medico') || '';
+    let baseCache = [];
+    const enviadoAlServidor = {};   // cédula -> última ficha enviada (texto)
+    let ultimosVitalesReg = {};     // cédula -> último registro de signos vitales
+    let historialCache = {};        // cédula -> { vitales: [], eventos: [] }
+    let vitalesVisibles = 100;
+    let temporizadorRenderHistoria = null;
+    let temporizadorReintento = null;
+
+    async function api(ruta, opciones) {
+      opciones = opciones || {};
+      const cabeceras = Object.assign({ 'Content-Type': 'application/json' }, opciones.headers || {});
+      if (tokenMedico) cabeceras['Authorization'] = 'Bearer ' + tokenMedico;
+      const r = await fetch(ruta, Object.assign({}, opciones, { headers: cabeceras, cache: 'no-store' }));
+      if (r.status === 401) {
+        cerrarSesionMedico(true);
+        throw new Error('Sesión vencida');
+      }
+      return r;
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      calcularEdadAutomatica();
+      actualizarModeloTerapia();
+      // Si ya había iniciado sesión en esta pestaña, se retoma sin pedir clave
+      if (tokenMedico) {
+        entrarAlPanel().catch(() => cerrarSesionMedico(true));
+      }
+    });
+
+    /* Pide al servidor la lista de servidores STUN/TURN */
+    async function cargarConfiguracionIce() {
+      if (iceCargado) return;
+      try {
+        const r = await fetch('/api/ice', { cache: 'no-store' });
+        if (r.ok) {
+          const cfg = await r.json();
+          if (cfg && Array.isArray(cfg.iceServers) && cfg.iceServers.length) {
+            configuracionIce = { iceServers: cfg.iceServers };
+            iceCargado = true;
+          }
+        }
+      } catch (err) {
+        console.warn('No se pudo leer /api/ice, se usa solo STUN:', err);
+      }
+    }
+
+    function mostrarEstadoPaciente(texto) {
+      const estado = document.getElementById('mEstadoLlamada');
+      if (estado) estado.innerText = texto;
+      const p = document.querySelector('#patientFeedPlaceholder p');
+      if (p) p.innerText = texto;
+      const ph = document.getElementById('patientFeedPlaceholder');
+      if (ph && !(streamPaciente && streamPaciente.getVideoTracks().length)) ph.style.display = 'flex';
+    }
+
+    function iniciarConexiónSocketMedico() {
+      const estadoSrv = document.getElementById('serverConnectionStatus');
+
+      if (typeof io === 'undefined') {
+        estadoSrv.innerText = "SERVIDOR: NO DISPONIBLE (abre esta página desde la dirección del servidor Node)";
+        estadoSrv.style.color = "#ff4d4d";
+        return;
+      }
+
+      if (socket) { try { socket.disconnect(); } catch (e) {} }
+      socket = io({ auth: { token: tokenMedico } });
+
+      socket.on('connect', () => {
+        estadoSrv.innerText = "SERVIDOR: CONECTADO (SOCKET.IO ACTIVO)";
+        estadoSrv.style.color = "#00d26a";
+        socket.emit('doctor:join');
+      });
+
+      socket.on('disconnect', () => {
+        estadoSrv.innerText = "SERVIDOR: DESCONECTADO";
+        estadoSrv.style.color = "#ff4d4d";
+      });
+
+      // Lista de pacientes ya conectados al entrar el médico
+      socket.on('server:patients-online', (lista) => {
+        pacientesEnLinea = new Set((lista || []).map(p => String(p.cedula)));
+        renderizarListaPacientes();
+      });
+
+      // Un paciente entra o sale
+      socket.on('server:patient-online', (d) => {
+        if (!d || !d.cedula) return;
+        if (d.conectado) pacientesEnLinea.add(String(d.cedula));
+        else pacientesEnLinea.delete(String(d.cedula));
+        renderizarListaPacientes();
+      });
+
+      // Alerta SOS del paciente
+      socket.on('patient:sos', (alerta) => {
+        alertaActual = alerta;
+        mostrarNotificacionAlertaMedico(alerta);
+      });
+
+      // Movimiento y repeticiones en vivo
+      socket.on('patient:movement', (d) => {
+        if (!d || !d.cedula) return;
+        ultimasMetricas[String(d.cedula)] = d;
+        if (String(d.cedula) === String(pacienteEnLlamadaActual)) pintarMetricas(d);
+      });
+
+      // Estado completo del paciente (1 vez por segundo)
+      socket.on('patient:state', (d) => {
+        if (!d || !d.cedula) return;
+        ultimasMetricas[String(d.cedula)] = d;
+        ultimoEstadoPaciente[String(d.cedula)] = d;
+        if (String(d.cedula) === String(pacienteEnLlamadaActual)) pintarMetricas(d);
+        Object.keys(espejos).forEach((fid) => {
+          if (espejos[fid].cedula === String(d.cedula)) enviarEstadoAEspejo(fid);
+        });
+      });
+
+      socket.on('patient:repetition', (d) => {
+        console.log('Repetición recibida:', d);
+      });
+
+      // Cada lectura de signos vitales llega ya guardada en el servidor
+      socket.on('patient:vitals', (r) => {
+        if (!r || !r.cedula) return;
+        const c = String(r.cedula);
+        ultimosVitalesReg[c] = r;
+        if (historialCache[c]) historialCache[c].vitales.push(r);
+        if (c === String(pacienteEnLlamadaActual)) {
+          pintarMetricas(ultimoEstadoPaciente[c] || ultimasMetricas[c] || { cedula: c });
+        }
+        if (c === String(historialCedulaActual) &&
+            document.getElementById('historialClinicoModal').style.display === 'flex') {
+          programarRenderHistoria();
+        }
+      });
+
+      socket.on('server:ultimos-vitales', (o) => {
+        ultimosVitalesReg = Object.assign({}, ultimosVitalesReg, o || {});
+      });
+
+      socket.on('server:auth-error', () => cerrarSesionMedico());
+
+      socket.on('patient:session-completed', (d) => {
+        console.log('Sesión completada recibida:', d);
+        guardarSesionRecibida(d);
+        if (d && String(d.cedula) === String(pacienteEnLlamadaActual)) {
+          document.getElementById('mEstadoLlamada').innerText = 'Sesión completada por el paciente';
+        }
+      });
+
+      // ---- Señalización de la videollamada ----
+      socket.on('server:patient-offline', (d) => {
+        if (d && String(d.cedula) === String(pacienteEnLlamadaActual)) {
+          mostrarEstadoPaciente('El paciente no está conectado.');
+          pacienteEnLlamadaActual = null;
+        }
+      });
+
+      socket.on('server:patient-busy', (d) => {
+        if (d && String(d.cedula) === String(pacienteEnLlamadaActual)) {
+          mostrarEstadoPaciente('El paciente ya está en llamada con otro médico.');
+          pacienteEnLlamadaActual = null;
+        }
+      });
+
+      socket.on('patient:call-rejected', (d) => {
+        if (d && String(d.cedula) === String(pacienteEnLlamadaActual)) {
+          mostrarEstadoPaciente('El paciente rechazó la llamada.');
+          cerrarConexionWebRTC();
+          pacienteEnLlamadaActual = null;
+        }
+      });
+
+      socket.on('patient:call-accepted', (d) => {
+        if (d && String(d.cedula) === String(pacienteEnLlamadaActual)) {
+          iniciarOfertaHaciaPaciente();
+        }
+      });
+
+      socket.on('patient:answer', async (d) => {
+        if (!d || String(d.cedula) !== String(pacienteEnLlamadaActual)) return;
+        const pc = peerConnection;
+        if (!pc || pc.signalingState !== 'have-local-offer') return;
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(d.answer));
+          await vaciarCandidatosPendientes(pc);
+        } catch (err) {
+          console.error('Error al procesar la respuesta del paciente:', err);
+          mostrarEstadoPaciente('Error al procesar la respuesta del paciente.');
+        }
+      });
+
+      socket.on('patient:ice-candidate', async (d) => {
+        if (!d || !d.candidate || String(d.cedula) !== String(pacienteEnLlamadaActual)) return;
+        if (peerConnection && peerConnection.remoteDescription) {
+          try {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(d.candidate));
+          } catch (err) {
+            console.warn('Candidato ICE descartado:', err);
+          }
+        } else {
+          candidatosPendientes.push(d.candidate);
+        }
+      });
+
+      socket.on('patient:hangup', (d) => {
+        if (d && String(d.cedula) === String(pacienteEnLlamadaActual)) {
+          cerrarConexionWebRTC();
+          mostrarEstadoPaciente('El paciente finalizó la llamada.');
+        }
+      });
+    }
+
+    function horaCorta(t) {
+      return new Date(t).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    /* Muestra el valor que manda el paciente; si no trae uno, usa la última
+       lectura guardada de ese paciente (con la hora en que llegó). */
+    function textoVitalMedico(d, campo, clave, unidad, dec) {
+      const t = d && d.vitales ? d.vitales[campo] : null;
+      if (t && !/no disponible/i.test(t)) return t;
+      const ced = d && d.cedula ? String(d.cedula) : String(pacienteEnLlamadaActual || '');
+      const r = ultimosVitalesReg[ced];
+      if (r && r[clave] !== null && r[clave] !== undefined) {
+        return Number(r[clave]).toFixed(dec) + ' ' + unidad + ' (' + horaCorta(r.t) + ')';
+      }
+      return '--';
+    }
+
+    function pintarMetricas(d) {
+      const a = (d && d.angles) || {};
+      const reps = d ? (d.repeticiones != null ? d.repeticiones : d.repetitions) : null;
+      document.getElementById('mHombro').innerText = a.shoulder || '--';
+      document.getElementById('mCodo').innerText = a.elbow || '--';
+      document.getElementById('mCadera').innerText = a.hip || '--';
+      document.getElementById('mRep').innerText = reps != null ? reps : 0;
+
+      if (!d) {
+        document.getElementById('mEstadoTerapia').innerText = '--';
+      } else if (d.estado !== undefined) {
+        document.getElementById('mEstadoTerapia').innerText = ETIQUETAS_ESTADO[d.estado] || d.estado;
+      }
+
+      const base = d || { cedula: pacienteEnLlamadaActual };
+      document.getElementById('mPulso').innerText = textoVitalMedico(base, 'pulso', 'pulso', 'lpm', 0);
+      document.getElementById('mResp').innerText = textoVitalMedico(base, 'respiracion', 'respiracion', 'rpm', 0);
+      document.getElementById('mSpO2').innerText = textoVitalMedico(base, 'saturacion', 'saturacion', '%', 0);
+      document.getElementById('mTemp').innerText = textoVitalMedico(base, 'temperatura', 'temperatura', '°C', 1);
+    }
+
+    function cerrarConexionWebRTC() {
+      if (peerConnection) {
+        peerConnection.ontrack = null;
+        peerConnection.onicecandidate = null;
+        peerConnection.onconnectionstatechange = null;
+        try { peerConnection.close(); } catch (e) {}
+        peerConnection = null;
+      }
+      candidatosPendientes = [];
+      streamPaciente = null;
+      streamAvatarPaciente = null;
+      trAvatar = null;
+      const v = document.getElementById('patientLiveFeedVideo');
+      if (v) v.srcObject = null;
+      const va = document.getElementById('patientAvatarVideo');
+      if (va) va.srcObject = null;
+      const pa = document.getElementById('avatarFeedPlaceholder');
+      if (pa) pa.style.display = 'flex';
+    }
+
+    async function vaciarCandidatosPendientes(pc) {
+      if (!pc || !pc.remoteDescription) return;
+      const lista = candidatosPendientes;
+      candidatosPendientes = [];
+      for (const c of lista) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(c));
+        } catch (err) {
+          console.warn('Candidato ICE descartado:', err);
+        }
+      }
+    }
+
+    /* El paciente aceptó: el médico crea la oferta WebRTC.
+       Si este equipo no tiene cámara o micrófono, participa en modo
+       "solo recibir": ve y escucha al paciente sin enviar nada. */
+    async function iniciarOfertaHaciaPaciente() {
+      const cedula = pacienteEnLlamadaActual;
+      if (!cedula) return;
+
+      try {
+        await cargarConfiguracionIce();
+        cerrarConexionWebRTC();
+
+        const pc = new RTCPeerConnection(configuracionIce);
+        peerConnection = pc;
+
+        if (streamMedicoActivo) {
+          streamMedicoActivo.getTracks().forEach(t => pc.addTrack(t, streamMedicoActivo));
+        }
+
+        ['video', 'audio'].forEach((tipo) => {
+          const yaEnvia = pc.getSenders().some(s => s.track && s.track.kind === tipo);
+          if (!yaEnvia) pc.addTransceiver(tipo, { direction: 'recvonly' });
+        });
+
+
+        pc.ontrack = (event) => {
+          if (trAvatar && event.transceiver === trAvatar) {
+            if (!streamAvatarPaciente) streamAvatarPaciente = new MediaStream();
+            streamAvatarPaciente.addTrack(event.track);
+            const va = document.getElementById('patientAvatarVideo');
+            if (va.srcObject !== streamAvatarPaciente) va.srcObject = streamAvatarPaciente;
+            va.play().catch(() => {});
+            document.getElementById('avatarFeedPlaceholder').style.display = 'none';
+            return;
+          }
+          if (!streamPaciente) streamPaciente = new MediaStream();
+          streamPaciente.addTrack(event.track);
+          const v = document.getElementById('patientLiveFeedVideo');
+          if (v.srcObject !== streamPaciente) v.srcObject = streamPaciente;
+          v.play().catch(() => {});
+          if (event.track.kind === 'video') {
+            document.getElementById('patientFeedPlaceholder').style.display = 'none';
+            asignarCamaraEspejo('espejoFrame');
+          }
+        };
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate && socket && socket.connected) {
+            socket.emit('doctor:ice-candidate', { cedula: cedula, candidate: event.candidate });
+          }
+        };
+
+        pc.onconnectionstatechange = () => {
+          if (peerConnection !== pc) return;
+          const s = pc.connectionState;
+          if (s === 'connected') document.getElementById('mEstadoLlamada').innerText = 'Videollamada conectada';
+          else if (s === 'connecting') document.getElementById('mEstadoLlamada').innerText = 'Conectando video...';
+          else if (s === 'disconnected') document.getElementById('mEstadoLlamada').innerText = 'Conexión inestable...';
+          else if (s === 'failed') mostrarEstadoPaciente('Falló la conexión de video. Entre redes distintas puede hacer falta un servidor TURN.');
+        };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        socket.emit('doctor:offer', { cedula: cedula, offer: pc.localDescription });
+        document.getElementById('mEstadoLlamada').innerText = 'Oferta enviada, esperando al paciente...';
+      } catch (err) {
+        console.error('Error al crear la oferta:', err);
+        mostrarEstadoPaciente('Error al iniciar la videollamada: ' + err.message);
+      }
+    }
+
+    function mostrarNotificacionAlertaMedico(alerta) {
+      const banner = document.getElementById('emergencyAlertBanner');
+      const textEl = document.getElementById('emergencyAlertText');
+      textEl.innerText = `Paciente: ${alerta.nombre} (Cédula: ${alerta.cedula}) solicita asistencia clínica urgente.`;
+      banner.classList.add('active');
+    }
+
+    function cerrarBannerAlertaMedico() {
+      document.getElementById('emergencyAlertBanner').classList.remove('active');
+    }
+
+    function unirMedicoAUrgencia() {
+      cerrarBannerAlertaMedico();
+      if (!alertaActual || !alertaActual.cedula) return;
+      if (socket && socket.connected) {
+        socket.emit('doctor:alert-acknowledged', { cedula: alertaActual.cedula });
+      }
+      abrirEntradaTerapiaEnVivo(String(alertaActual.cedula));
+    }
+
+    function actualizarModeloTerapia() {
+      const select = document.getElementById('rxRutina');
+      const option = select.options[select.selectedIndex];
+      const modelFile = option ? (option.getAttribute('data-model') || 'terapia.1.fbx') : 'terapia.1.fbx';
+      document.getElementById('modelNameDisplay').innerText = `Archivo 3D vinculado: ${modelFile}`;
+      return modelFile;
+    }
+
+    function calcularEdadAutomatica() {
+      const fechaNac = document.getElementById('patNacimiento').value;
+      const display = document.getElementById('edadCalculadaDisplay');
+      if (!fechaNac) return 0;
+      const birthDate = new Date(fechaNac);
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+      display.innerText = `Edad calculada: ${age} años`;
+      return age;
+    }
+
+    function obtenerBasePacientes() {
+      return baseCache;
+    }
+
+    // Copia local solo como respaldo y para la pantalla espejo
+    function espejarLocal() {
+      try { localStorage.setItem('uac_base_pacientes', JSON.stringify(baseCache)); } catch (e) {}
+    }
+
+    function guardarBasePacientes(lista) {
+      baseCache = lista;
+      espejarLocal();
+      sincronizarConServidor();
+    }
+
+    function sincronizarConServidor() {
+      baseCache.forEach((ficha) => {
+        const ced = String(ficha.paciente.documento);
+        const json = JSON.stringify(ficha);
+        if (enviadoAlServidor[ced] === json) return;
+        enviadoAlServidor[ced] = json;
+        api('/api/pacientes/' + encodeURIComponent(ced), { method: 'PUT', body: json })
+          .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); })
+          .catch(() => {
+            delete enviadoAlServidor[ced];
+            clearTimeout(temporizadorReintento);
+            temporizadorReintento = setTimeout(sincronizarConServidor, 5000);
+          });
+      });
+    }
+
+    async function loginMedico() {
+      const user = document.getElementById('medUser').value.trim();
+      const pin = document.getElementById('medPin').value.trim();
+      const err = document.getElementById('loginError');
+
+      try {
+        const r = await fetch('/api/medico/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user: user, pin: pin })
+        });
+
+        if (r.status === 429) {
+          err.innerText = 'Demasiados intentos. Espera unos minutos.';
+          err.style.display = 'block';
+          return;
+        }
+        if (!r.ok) {
+          err.innerText = 'Credenciales inválidas.';
+          err.style.display = 'block';
+          return;
+        }
+
+        const j = await r.json();
+        tokenMedico = j.token;
+        sessionStorage.setItem('uac_token_medico', tokenMedico);
+        err.style.display = 'none';
+        await entrarAlPanel();
+      } catch (e) {
+        console.error(e);
+        err.innerText = 'No se pudo conectar con el servidor.';
+        err.style.display = 'block';
+      }
+    }
+
+    async function entrarAlPanel() {
+      // Respaldo del navegador (se lee ANTES de sobrescribirlo)
+      let respaldo = [];
+      try { respaldo = JSON.parse(localStorage.getItem('uac_base_pacientes') || '[]'); } catch (e) {}
+
+      const r = await api('/api/pacientes');
+      if (!r.ok) throw new Error('No se pudo cargar la lista de pacientes');
+      let lista = await r.json();
+
+      // Pacientes que solo existían en este navegador se suben al servidor
+      const enServidor = new Set(lista.map((f) => String(f.paciente.documento)));
+      const faltantes = (Array.isArray(respaldo) ? respaldo : []).filter(
+        (f) => f && f.paciente && f.paciente.documento && !enServidor.has(String(f.paciente.documento))
+      );
+      if (faltantes.length) {
+        const ri = await api('/api/pacientes/importar', { method: 'POST', body: JSON.stringify(faltantes) });
+        if (ri.ok) {
+          const r2 = await api('/api/pacientes');
+          if (r2.ok) lista = await r2.json();
+        }
+      }
+
+      baseCache = lista;
+      Object.keys(enviadoAlServidor).forEach((k) => delete enviadoAlServidor[k]);
+      lista.forEach((f) => { enviadoAlServidor[String(f.paciente.documento)] = JSON.stringify(f); });
+      espejarLocal();
+
+      document.getElementById('loginContainer').style.display = 'none';
+      document.getElementById('medicoPanel').style.display = 'block';
+      renderizarListaPacientes();
+      iniciarConexiónSocketMedico();
+    }
+
+    function cerrarSesionMedico() {
+      tokenMedico = '';
+      sessionStorage.removeItem('uac_token_medico');
+      try { if (socket) socket.disconnect(); } catch (e) {}
+      location.reload();
+    }
+
+    function cambiarPestaña(tabId, btn) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+      btn.classList.add('active');
+    }
+
+    function guardarPacienteEnBaseDatos() {
+      const cedula = document.getElementById('patDoc').value.trim();
+      if (!cedula) { alert("Ingrese la cédula."); return; }
+
+      const edadCalc = calcularEdadAutomatica();
+      let lista = obtenerBasePacientes();
+      const existingIndex = lista.findIndex(p => p.paciente.documento === cedula);
+      let sesionesPrevias = existingIndex >= 0 ? (lista[existingIndex].sesionesHistorial || []) : [];
+
+      const fichaPaciente = {
+        paciente: {
+          nombres: document.getElementById('patNombre').value.trim(),
+          apellidos: document.getElementById('patApellido').value.trim(),
+          documento: cedula,
+          fechaNacimiento: document.getElementById('patNacimiento').value,
+          edadCalculada: edadCalc,
+          genero: document.getElementById('patGenero').value,
+          dolorEva: parseInt(document.getElementById('patEva').value) || 0
+        },
+        anamnesis: {
+          patologia: document.getElementById('patPatologia').value,
+          lado: document.getElementById('patLado').value,
+          articulacion: document.getElementById('patArticulacion').value,
+          nota: document.getElementById('patNota').value.trim()
+        },
+        programacionMensual: {
+          fechaInicio: document.getElementById('rxFechaInicio').value,
+          fechaFin: document.getElementById('rxFechaFin').value,
+          rutinaId: document.getElementById('rxRutina').value,
+          modelo3D: actualizarModeloTerapia()
+        },
+        sesionesHistorial: sesionesPrevias,
+        apuntesMedico: existingIndex >= 0 ? (lista[existingIndex].apuntesMedico || []) : [],
+        terapias: existingIndex >= 0 ? (lista[existingIndex].terapias || {}) : {}
+      };
+
+      if (existingIndex >= 0) lista[existingIndex] = fichaPaciente;
+      else lista.push(fichaPaciente);
+
+      guardarBasePacientes(lista);
+      localStorage.setItem('uac_historia_clinica', JSON.stringify(fichaPaciente));
+
+      const banner = document.getElementById('authBanner');
+      banner.style.display = 'block';
+      setTimeout(() => banner.style.display = 'none', 3000);
+      renderizarListaPacientes();
+    }
+
+    function renderizarListaPacientes() {
+      const lista = obtenerBasePacientes();
+      document.getElementById('contadorPacientes').innerText = lista.length;
+      const tbody = document.getElementById('tablaPacientesBody');
+      tbody.innerHTML = '';
+
+      if (lista.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#a0a0c0; padding:20px;">No hay pacientes registrados.</td></tr>`;
+        return;
+      }
+
+      lista.forEach((item) => {
+        const p = item.paciente;
+        const a = item.anamnesis;
+        const prog = item.programacionMensual;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><span class="cred-badge">${p.documento}</span></td>
+          <td>${pacientesEnLinea.has(String(p.documento)) ? '<span style="color:#00d26a;" title="Conectado ahora">● </span>' : ''}${p.nombres} ${p.apellidos}</td>
+          <td>${a.patologia} (${a.lado})</td>
+          <td>${prog.fechaInicio} al ${prog.fechaFin}</td>
+          <td><span style="font-family:monospace; color:#00d26a;">${prog.modelo3D || 'terapia.1.fbx'}</span></td>
+          <td><button class="btn-info" style="padding:6px 12px; font-size:0.75rem;" onclick="abrirModalHistorialDiagnostico('${p.documento}')">📋 Historia clínica</button></td>
+          <td><button class="btn-call" style="padding:6px 12px; font-size:0.75rem;" onclick="abrirEntradaTerapiaEnVivo('${p.documento}')">🟢 En Vivo</button> <button class="btn-info" style="padding:6px 12px; font-size:0.75rem;" onclick="observarPaciente('${p.documento}')">👁 Observar</button></td>
+          <td><button class="btn-danger" style="padding:6px 10px; font-size:0.75rem;" onclick="eliminarPaciente('${p.documento}')">🗑️</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    /* ---------- Pantalla espejo del paciente ---------- */
+
+    function ajustarEspejo(frameId) {
+      const e = espejos[frameId];
+      if (!e) return;
+      const box = document.getElementById(e.boxId);
+      const f = document.getElementById(frameId);
+      if (!box || !f || !box.clientWidth || !box.clientHeight) return;
+      const s = Math.min(box.clientWidth / 1280, box.clientHeight / 720);
+      f.style.transform = 'scale(' + s + ')';
+      f.style.left = Math.max(0, (box.clientWidth - 1280 * s) / 2) + 'px';
+      f.style.top = Math.max(0, (box.clientHeight - 720 * s) / 2) + 'px';
+    }
+
+    function enviarEstadoAEspejo(frameId) {
+      const e = espejos[frameId];
+      const f = document.getElementById(frameId);
+      if (!e || !f || !f.contentWindow) return;
+      const d = ultimoEstadoPaciente[e.cedula];
+      if (!d) return;
+      f.contentWindow.postMessage({ tipo: 'uac-estado', estado: d }, location.origin);
+    }
+
+    function asignarCamaraEspejo(frameId) {
+      const f = document.getElementById(frameId);
+      if (!f || !streamPaciente) return;
+      try {
+        const v = f.contentDocument && f.contentDocument.getElementById('webcam');
+        if (v && v.srcObject !== streamPaciente) {
+          v.srcObject = streamPaciente;
+          v.play().catch(() => {});
+        }
+      } catch (err) {
+        console.warn('No se pudo mostrar la cámara en la pantalla espejo:', err);
+      }
+    }
+
+    function abrirEspejo(frameId, boxId, cedula) {
+      const f = document.getElementById(frameId);
+      if (!f) return;
+      espejos[frameId] = { cedula: String(cedula), boxId: boxId };
+      f.onload = () => {
+        ajustarEspejo(frameId);
+        enviarEstadoAEspejo(frameId);
+        asignarCamaraEspejo(frameId);
+      };
+      f.src = '/index.html?espejo=' + encodeURIComponent(cedula);
+      setTimeout(() => ajustarEspejo(frameId), 200);
+    }
+
+    function cerrarEspejo(frameId) {
+      delete espejos[frameId];
+      const f = document.getElementById(frameId);
+      if (f) f.src = 'about:blank';
+    }
+
+    function pantallaCompletaEspejo(boxId) {
+      const b = document.getElementById(boxId);
+      if (!b) return;
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      } else if (b.requestFullscreen) {
+        b.requestFullscreen().catch(() => {});
+      }
+    }
+
+    document.addEventListener('fullscreenchange', () => {
+      setTimeout(() => Object.keys(espejos).forEach(ajustarEspejo), 100);
+    });
+    window.addEventListener('resize', () => Object.keys(espejos).forEach(ajustarEspejo));
+
+    /* ---------- Observación en silencio (sin cámara, sin micrófono, sin llamada) ---------- */
+
+    function actualizarEstadoObservacion(cedula) {
+      const el = document.getElementById('observarEstado');
+      if (!pacientesEnLinea.has(String(cedula))) {
+        el.innerText = 'Paciente no conectado';
+        return;
+      }
+      const d = ultimoEstadoPaciente[String(cedula)];
+      el.innerText = d
+        ? `${ETIQUETAS_ESTADO[d.estado] || d.estado} · Repeticiones: ${d.repeticiones != null ? d.repeticiones : 0}`
+        : 'Conectado, esperando datos...';
+    }
+
+    function observarPaciente(cedula) {
+      cedula = String(cedula);
+      const ficha = obtenerBasePacientes().find(p => String(p.paciente.documento) === cedula);
+      const nombre = ficha ? `${ficha.paciente.nombres} ${ficha.paciente.apellidos}` : cedula;
+      document.getElementById('observarTitulo').innerText = `👁 Observando: ${nombre} (${cedula})`;
+      document.getElementById('observarModal').style.display = 'flex';
+      actualizarEstadoObservacion(cedula);
+      abrirEspejo('observarFrame', 'observarBox', cedula);
+    }
+
+    function cerrarObservacion() {
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      cerrarEspejo('observarFrame');
+      document.getElementById('observarModal').style.display = 'none';
+    }
+
+    setInterval(() => {
+      const e = espejos['observarFrame'];
+      if (e) actualizarEstadoObservacion(e.cedula);
+    }, 1000);
+
+    /* ---------- Terapias programadas ---------- */
+
+    function fechaLocalMedico(d) {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    function calcularDiasTerapia(f) {
+      const prog = f.programacionMensual || {};
+      if (!prog.fechaInicio || !prog.fechaFin) return [];
+      const ini = new Date(prog.fechaInicio + 'T00:00:00');
+      const fin = new Date(prog.fechaFin + 'T00:00:00');
+      const total = Math.floor((fin - ini) / 86400000) + 1;
+      const dias = [];
+      for (let i = 0; i < total; i++) {
+        const d = new Date(ini);
+        d.setDate(ini.getDate() + i);
+        dias.push({ dia: i + 1, fecha: fechaLocalMedico(d) });
+      }
+      return dias;
+    }
+
+    function estadoTerapia(f, dia, fechaBase) {
+      const cfg = (f.terapias && f.terapias[dia]) || {};
+      const programada = cfg.programada || fechaBase;
+      const manual = typeof cfg.habilitada === 'boolean';
+      const habilitada = manual ? cfg.habilitada : (programada <= fechaLocalMedico(new Date()));
+      const completada = (f.sesionesHistorial || []).some(
+        s => Number(s.dia) === dia && (!cfg.reabiertaEn || String(s.fecha) > cfg.reabiertaEn)
+      );
+      return { programada, manual, habilitada, completada };
+    }
+
+    function enviarTerapiasAlPaciente(cedula, terapias) {
+      if (socket && socket.connected) {
+        socket.emit('doctor:terapias', { cedula: String(cedula), terapias: terapias });
+      }
+    }
+
+    function modificarTerapia(dia, cambios) {
+      const lista = obtenerBasePacientes();
+      const i = lista.findIndex(p => String(p.paciente.documento) === String(historialCedulaActual));
+      if (i < 0) return;
+      if (!lista[i].terapias) lista[i].terapias = {};
+      lista[i].terapias[dia] = Object.assign({}, lista[i].terapias[dia] || {}, cambios);
+      guardarBasePacientes(lista);
+      enviarTerapiasAlPaciente(historialCedulaActual, lista[i].terapias);
+      renderTerapias(lista[i]);
+    }
+
+    function renderTerapias(f) {
+      const cont = document.getElementById('listaTerapias');
+      cont.innerHTML = '';
+      const dias = calcularDiasTerapia(f);
+      let completadas = 0;
+      let habilitadas = 0;
+
+      dias.forEach((d) => {
+        const est = estadoTerapia(f, d.dia, d.fecha);
+        if (est.completada) completadas++;
+        else if (est.habilitada) habilitadas++;
+
+        const fila = document.createElement('div');
+        fila.style.cssText = 'display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:6px 0; border-bottom:1px solid #303050;';
+
+        const nombre = document.createElement('span');
+        nombre.style.cssText = 'width:60px; font-weight:bold;';
+        nombre.textContent = 'Día ' + d.dia;
+
+        const fecha = document.createElement('input');
+        fecha.type = 'date';
+        fecha.value = est.programada;
+        fecha.style.cssText = 'width:150px; padding:4px 6px;';
+        fecha.onchange = () => { if (fecha.value) modificarTerapia(d.dia, { programada: fecha.value }); };
+
+        const chip = document.createElement('span');
+        chip.style.cssText = 'min-width:150px; color:' + (est.completada ? '#00d26a' : est.habilitada ? '#ffd700' : '#a0a0c0') + ';';
+        chip.textContent = (est.completada ? '✅ Completada' : est.habilitada ? '▶ Habilitada' : '🔒 Bloqueada') + (est.manual ? ' (manual)' : ' (por fecha)');
+
+        const botones = [
+          ['Habilitar', 'btn-call', { habilitada: true }],
+          ['Bloquear', 'btn-danger', { habilitada: false }],
+          ['Reabrir', 'btn-info', { habilitada: true, reabiertaEn: new Date().toISOString() }],
+          ['Por fecha', 'btn-secondary', { habilitada: undefined }]
+        ];
+        fila.appendChild(nombre);
+        fila.appendChild(fecha);
+        fila.appendChild(chip);
+        botones.forEach((b) => {
+          const btn = document.createElement('button');
+          btn.className = b[1];
+          btn.style.cssText = 'padding:4px 10px; font-size:0.75rem;';
+          btn.textContent = b[0];
+          btn.onclick = () => modificarTerapia(d.dia, b[2]);
+          fila.appendChild(btn);
+        });
+        cont.appendChild(fila);
+      });
+
+      if (dias.length === 0) cont.textContent = 'Este paciente no tiene programación de terapias.';
+      document.getElementById('terapiasResumenMedico').innerText =
+        dias.length ? `· ${dias.length} terapias · ${completadas} completadas · ${habilitadas} habilitadas` : '';
+    }
+
+    function enviarComandoTerapia(comando) {
+      if (!socket || !socket.connected || !pacienteEnLlamadaActual) {
+        alert('No hay conexión activa con un paciente.');
+        return;
+      }
+      socket.emit('doctor:command', { cedula: pacienteEnLlamadaActual, command: comando });
+      document.getElementById('mEstadoLlamada').innerText = 'Comando enviado: ' + comando;
+    }
+
+    function limpiarFormulario() {
+      ['patNombre', 'patApellido', 'patDoc', 'patNacimiento', 'patEva', 'patNota'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      document.getElementById('edadCalculadaDisplay').innerText = '';
+    }
+
+    /* El servidor ya guardó la sesión; aquí solo se actualiza lo que ve el médico */
+    function guardarSesionRecibida(d) {
+      if (!d || !d.cedula) return;
+      const ced = String(d.cedula);
+      const f = baseCache.find((p) => String(p.paciente.documento) === ced);
+      if (!f) return;
+      if (!Array.isArray(f.sesionesHistorial)) f.sesionesHistorial = [];
+      if (f.sesionesHistorial.some((s) => s.fecha === d.fecha)) return;
+      f.sesionesHistorial.push(d);
+      enviadoAlServidor[ced] = JSON.stringify(f);
+      espejarLocal();
+      if (ced === String(historialCedulaActual) &&
+          document.getElementById('historialClinicoModal').style.display === 'flex') {
+        programarRenderHistoria();
+      }
+    }
+
+    function agregarApunteMedico(cedula, texto) {
+      texto = (texto || '').trim();
+      if (!texto) return false;
+      const lista = obtenerBasePacientes();
+      const i = lista.findIndex(p => String(p.paciente.documento) === String(cedula));
+      if (i < 0) return false;
+      if (!Array.isArray(lista[i].apuntesMedico)) lista[i].apuntesMedico = [];
+      lista[i].apuntesMedico.push({ fecha: new Date().toISOString(), texto: texto });
+      guardarBasePacientes(lista);
+      return true;
+    }
+
+    function guardarApunteEnVivo() {
+      const caja = document.getElementById('apunteEnVivo');
+      const estado = document.getElementById('apunteEstado');
+      if (!pacienteEnLlamadaActual) { estado.innerText = 'No hay paciente seleccionado.'; return; }
+      if (agregarApunteMedico(pacienteEnLlamadaActual, caja.value)) {
+        caja.value = '';
+        estado.innerText = '✓ Apunte guardado';
+      } else {
+        estado.innerText = 'Escribe un apunte primero.';
+      }
+      setTimeout(() => { estado.innerText = ''; }, 2500);
+    }
+
+    function abrirHistorialDesdeLlamada() {
+      if (pacienteEnLlamadaActual) abrirModalHistorialDiagnostico(pacienteEnLlamadaActual);
+    }
+
+    function guardarApunteHistorial() {
+      const caja = document.getElementById('apunteHistorial');
+      const estado = document.getElementById('apunteHistorialEstado');
+      if (agregarApunteMedico(historialCedulaActual, caja.value)) {
+        caja.value = '';
+        estado.innerText = '✓ Apunte guardado';
+        const f = obtenerBasePacientes().find(p => String(p.paciente.documento) === String(historialCedulaActual));
+        if (f) renderApuntes(f);
+      } else {
+        estado.innerText = 'Escribe un apunte primero.';
+      }
+      setTimeout(() => { estado.innerText = ''; }, 2500);
+    }
+
+    function crearCeldaHistoria(etiqueta, valor) {
+      const d = document.createElement('div');
+      const l = document.createElement('div');
+      l.style.cssText = 'font-size:0.7rem; color:#a0a0c0; text-transform:uppercase;';
+      l.textContent = etiqueta;
+      const v = document.createElement('div');
+      v.style.cssText = 'color:#fff;';
+      v.textContent = (valor === undefined || valor === null || valor === '') ? '—' : valor;
+      d.appendChild(l);
+      d.appendChild(v);
+      return d;
+    }
+
+    function renderHistoriaClinica(f) {
+      const g = document.getElementById('historiaClinicaGrid');
+      g.innerHTML = '';
+      const p = f.paciente || {};
+      const a = f.anamnesis || {};
+      const r = f.programacionMensual || {};
+      const celdas = [
+        ['Nombre', `${p.nombres || ''} ${p.apellidos || ''}`.trim()],
+        ['Documento', p.documento],
+        ['Fecha de nacimiento', p.fechaNacimiento],
+        ['Edad', p.edadCalculada != null ? p.edadCalculada + ' años' : ''],
+        ['Género', p.genero],
+        ['Dolor basal (EVA 0-10)', p.dolorEva],
+        ['Patología', a.patologia],
+        ['Lado afectado', a.lado],
+        ['Articulación', a.articulacion],
+        ['Programación', r.fechaInicio ? `${r.fechaInicio} al ${r.fechaFin}` : ''],
+        ['Rutina', r.rutinaId],
+        ['Modelo 3D', r.modelo3D]
+      ];
+      celdas.forEach(c => g.appendChild(crearCeldaHistoria(c[0], c[1])));
+      const nota = crearCeldaHistoria('Nota clínica inicial', a.nota);
+      nota.style.gridColumn = '1 / -1';
+      nota.lastChild.style.whiteSpace = 'pre-wrap';
+      g.appendChild(nota);
+    }
+
+    /* ===== Historia clínica de monitoreo ===== */
+
+    const CAMPOS_MON = [
+      ['pulso', 'Frecuencia cardíaca', 'lpm', 0],
+      ['respiracion', 'Frecuencia respiratoria', 'rpm', 0],
+      ['saturacion', 'Saturación de oxígeno (SpO₂)', '%', 0],
+      ['temperatura', 'Temperatura corporal', '°C', 1],
+      ['hombro', 'Ángulo de hombro', '°', 0],
+      ['codo', 'Ángulo de codo', '°', 0],
+      ['cadera', 'Ángulo de cadera', '°', 0]
+    ];
+
+    function vitalesDe(ced) {
+      return (historialCache[String(ced)] && historialCache[String(ced)].vitales) || [];
+    }
+
+    function estadisticas(arr, clave) {
+      const v = arr.filter((x) => x[clave] !== null && x[clave] !== undefined);
+      if (!v.length) return null;
+      const nums = v.map((x) => Number(x[clave]));
+      const suma = nums.reduce((s, n) => s + n, 0);
+      return {
+        n: nums.length,
+        ultima: nums[nums.length - 1],
+        t: v[v.length - 1].t,
+        prom: suma / nums.length,
+        min: Math.min.apply(null, nums),
+        max: Math.max.apply(null, nums)
+      };
+    }
+
+    function fmtNum(n, dec) {
+      return (n === null || n === undefined) ? '—' : Number(n).toFixed(dec);
+    }
+
+    function fmtFechaHora(t) {
+      return new Date(t).toLocaleString('es-CO');
+    }
+
+    function textoHace(ms) {
+      const s = Math.max(0, Math.round(ms / 1000));
+      if (s < 60) return 'hace ' + s + ' s';
+      const m = Math.floor(s / 60);
+      if (m < 60) return 'hace ' + m + ' min';
+      const h = Math.floor(m / 60);
+      if (h < 48) return 'hace ' + h + ' h';
+      return 'hace ' + Math.floor(h / 24) + ' días';
+    }
+
+    function celda(tr, texto) {
+      const td = document.createElement('td');
+      td.textContent = texto;
+      tr.appendChild(td);
+      return td;
+    }
+
+    function fichaDelHistorial() {
+      return obtenerBasePacientes().find((p) => String(p.paciente.documento) === String(historialCedulaActual));
+    }
+
+    function programarRenderHistoria() {
+      if (temporizadorRenderHistoria) return;
+      temporizadorRenderHistoria = setTimeout(() => {
+        temporizadorRenderHistoria = null;
+        renderMonitoreo();
+      }, 800);
+    }
+
+    function renderMonitoreo() {
+      const f = fichaDelHistorial();
+      if (!f) return;
+      renderResumenVitales();
+      renderGrafica();
+      renderTablaVitales();
+      renderSesiones(f);
+      renderEventos();
+    }
+
+    function renderResumenVitales() {
+      const arr = vitalesDe(historialCedulaActual);
+      const tbody = document.getElementById('tablaResumenVitales');
+      tbody.innerHTML = '';
+
+      CAMPOS_MON.forEach((c) => {
+        const st = estadisticas(arr, c[0]);
+        const tr = document.createElement('tr');
+        celda(tr, c[1]);
+        if (!st) {
+          celda(tr, 'Sin datos');
+          for (let i = 0; i < 4; i++) celda(tr, '—');
+        } else {
+          celda(tr, fmtNum(st.ultima, c[3]) + ' ' + c[2] + ' (' + fmtFechaHora(st.t) + ')');
+          celda(tr, fmtNum(st.prom, c[3]) + ' ' + c[2]);
+          celda(tr, fmtNum(st.min, c[3]) + ' ' + c[2]);
+          celda(tr, fmtNum(st.max, c[3]) + ' ' + c[2]);
+          celda(tr, String(st.n));
+        }
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('kpiPrecisionGlobal').innerText = arr.length;
+      document.getElementById('kpiRatioEjecucion').innerText = arr.length
+        ? textoHace(Date.now() - arr[arr.length - 1].t)
+        : '—';
+    }
+
+    function renderGrafica() {
+      const cont = document.getElementById('graficaVitales');
+      const clave = document.getElementById('selGrafica').value;
+      const def = CAMPOS_MON.find((c) => c[0] === clave);
+      const pts = vitalesDe(historialCedulaActual)
+        .filter((x) => x[clave] !== null && x[clave] !== undefined)
+        .slice(-400);
+
+      if (pts.length < 2) {
+        cont.innerHTML = '<p style="color:#a0a0c0; font-size:0.85rem; padding:10px 0;">' +
+          (pts.length === 1 ? 'Solo hay una lectura; se necesitan al menos dos para dibujar la gráfica.' : 'Aún no hay datos de este parámetro.') + '</p>';
+        return;
+      }
+
+      const W = 900, H = 260, mL = 55, mR = 20, mT = 15, mB = 40;
+      const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+      let vmin = Math.min.apply(null, pts.map((p) => p[clave]));
+      let vmax = Math.max.apply(null, pts.map((p) => p[clave]));
+      if (vmin === vmax) { vmin -= 1; vmax += 1; }
+      const pad = (vmax - vmin) * 0.12;
+      vmin -= pad; vmax += pad;
+
+      const x = (t) => mL + (t1 === t0 ? 0 : (t - t0) / (t1 - t0)) * (W - mL - mR);
+      const y = (v) => mT + (1 - (v - vmin) / (vmax - vmin)) * (H - mT - mB);
+
+      let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%; min-width:600px; height:auto; background:#0b0b14; border-radius:6px;">';
+      for (let i = 0; i <= 4; i++) {
+        const v = vmin + (vmax - vmin) * (i / 4);
+        const yy = y(v);
+        svg += '<line x1="' + mL + '" y1="' + yy + '" x2="' + (W - mR) + '" y2="' + yy + '" stroke="#303050" stroke-width="1"/>';
+        svg += '<text x="' + (mL - 6) + '" y="' + (yy + 4) + '" fill="#a0a0c0" font-size="11" text-anchor="end">' + v.toFixed(def[3] === 0 ? 0 : 1) + '</text>';
+      }
+      const linea = pts.map((p) => x(p.t).toFixed(1) + ',' + y(p[clave]).toFixed(1)).join(' ');
+      svg += '<polyline fill="none" stroke="#00d26a" stroke-width="2" points="' + linea + '"/>';
+      if (pts.length <= 120) {
+        pts.forEach((p) => {
+          svg += '<circle cx="' + x(p.t).toFixed(1) + '" cy="' + y(p[clave]).toFixed(1) + '" r="3" fill="#00d26a"/>';
+        });
+      }
+      svg += '<text x="' + mL + '" y="' + (H - 12) + '" fill="#a0a0c0" font-size="11" text-anchor="start">' + fmtFechaHora(t0) + '</text>';
+      svg += '<text x="' + (W - mR) + '" y="' + (H - 12) + '" fill="#a0a0c0" font-size="11" text-anchor="end">' + fmtFechaHora(t1) + '</text>';
+      svg += '<text x="12" y="' + (mT + 8) + '" fill="#a0a0c0" font-size="11">' + def[2] + '</text>';
+      svg += '</svg>';
+      cont.innerHTML = svg;
+    }
+
+    function renderTablaVitales() {
+      const arr = vitalesDe(historialCedulaActual).slice().reverse();
+      const tbody = document.getElementById('tablaVitales');
+      tbody.innerHTML = '';
+
+      if (!arr.length) {
+        const tr = document.createElement('tr');
+        const td = celda(tr, 'Aún no hay lecturas registradas. Se guardan solas cuando el paciente está conectado y el sensor envía datos.');
+        td.colSpan = 12;
+        td.style.cssText = 'text-align:center; color:#a0a0c0; padding:14px;';
+        tbody.appendChild(tr);
+        document.getElementById('btnMasVitales').style.display = 'none';
+        return;
+      }
+
+      arr.slice(0, vitalesVisibles).forEach((r) => {
+        const tr = document.createElement('tr');
+        celda(tr, fmtFechaHora(r.t));
+        celda(tr, fmtNum(r.pulso, 0));
+        celda(tr, fmtNum(r.respiracion, 0));
+        celda(tr, fmtNum(r.saturacion, 0));
+        celda(tr, fmtNum(r.temperatura, 1));
+        celda(tr, fmtNum(r.hombro, 0));
+        celda(tr, fmtNum(r.codo, 0));
+        celda(tr, fmtNum(r.cadera, 0));
+        celda(tr, ETIQUETAS_ESTADO[r.estado] || r.estado || '—');
+        celda(tr, r.dia != null ? r.dia : '—');
+        celda(tr, r.repeticiones != null ? r.repeticiones : '—');
+        celda(tr, r.origen === 'terapia' ? 'Durante terapia' : 'Sensor');
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('btnMasVitales').style.display = arr.length > vitalesVisibles ? 'inline-block' : 'none';
+    }
+
+    function renderSesiones(f) {
+      const sesiones = (f.sesionesHistorial || []).slice().sort((x, y) => String(x.fecha).localeCompare(String(y.fecha)));
+      const totalReps = sesiones.reduce((s, x) => s + (Number(x.repeticiones) || 0), 0);
+      const vitales = vitalesDe(f.paciente.documento);
+
+      document.getElementById('kpiTotalSesiones').innerText = sesiones.length;
+      document.getElementById('kpiMinutosTotales').innerText = totalReps;
+
+      const evol = document.getElementById('diagnosticoEvolucionRom');
+      if (sesiones.length === 0) {
+        evol.innerText = 'Aún no hay sesiones registradas.';
+      } else if (sesiones.length === 1) {
+        evol.innerText = `Una sesión registrada: ${sesiones[0].repeticiones} repeticiones (día ${sesiones[0].dia}).`;
+      } else {
+        const primera = sesiones[0].repeticiones;
+        const ultima = sesiones[sesiones.length - 1].repeticiones;
+        const promedio = (totalReps / sesiones.length).toFixed(1);
+        evol.innerText = `Primera sesión: ${primera} repeticiones. Última: ${ultima}. Promedio: ${promedio} por sesión.`;
+      }
+
+      const tbody = document.getElementById('tablaSesionesDetalle');
+      tbody.innerHTML = '';
+      if (sesiones.length === 0) {
+        const tr = document.createElement('tr');
+        const td = celda(tr, 'Sin sesiones registradas todavía.');
+        td.colSpan = 8;
+        td.style.cssText = 'text-align:center; color:#a0a0c0; padding:14px;';
+        tbody.appendChild(tr);
+        return;
+      }
+
+      sesiones.forEach((s, idx) => {
+        const fin = new Date(s.fecha).getTime();
+        const prev = idx > 0 ? new Date(sesiones[idx - 1].fecha).getTime() : 0;
+        const ini = Math.max(prev, fin - 3 * 3600 * 1000);
+        const ventana = vitales.filter((r) => r.t > ini && r.t <= fin);
+        const prom = (clave, dec) => {
+          const st = estadisticas(ventana, clave);
+          return st ? st.prom.toFixed(dec) : '—';
+        };
+        const tr = document.createElement('tr');
+        celda(tr, `Sesión ${idx + 1} — ${s.fecha ? new Date(s.fecha).toLocaleString('es-CO') : '—'}`);
+        celda(tr, s.dia != null ? s.dia : '—');
+        celda(tr, s.repeticiones != null ? s.repeticiones : 0);
+        celda(tr, prom('pulso', 0));
+        celda(tr, prom('respiracion', 0));
+        celda(tr, prom('saturacion', 0));
+        celda(tr, prom('temperatura', 1));
+        celda(tr, ventana.length);
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderEventos() {
+      const cont = document.getElementById('listaEventos');
+      cont.innerHTML = '';
+      const ev = ((historialCache[String(historialCedulaActual)] || {}).eventos || []).slice().reverse();
+      if (!ev.length) {
+        const p = document.createElement('div');
+        p.style.color = '#a0a0c0';
+        p.textContent = 'Sin eventos registrados.';
+        cont.appendChild(p);
+        return;
+      }
+      ev.forEach((e) => {
+        const item = document.createElement('div');
+        item.style.cssText = 'border-bottom:1px solid #303050; padding:5px 0;';
+        item.textContent = fmtFechaHora(e.t) + ' — ' + (e.tipo || '') + (e.detalle ? ': ' + e.detalle : '');
+        cont.appendChild(item);
+      });
+    }
+
+    function exportarCsvVitales() {
+      const arr = vitalesDe(historialCedulaActual);
+      if (!arr.length) { alert('No hay lecturas para exportar.'); return; }
+      const esc = (v) => '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"';
+      const filas = [['Fecha', 'Hora', 'FC (lpm)', 'FR (rpm)', 'SpO2 (%)', 'Temp (C)', 'Hombro', 'Codo', 'Cadera', 'Estado', 'Dia', 'Repeticiones', 'Origen']];
+      arr.forEach((r) => {
+        const d = new Date(r.t);
+        filas.push([d.toLocaleDateString('es-CO'), d.toLocaleTimeString('es-CO'), r.pulso, r.respiracion, r.saturacion, r.temperatura, r.hombro, r.codo, r.cadera, r.estado, r.dia, r.repeticiones, r.origen]);
+      });
+      const csv = '\ufeff' + filas.map((f) => f.map(esc).join(';')).join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'signos_vitales_' + historialCedulaActual + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    function renderApuntes(f) {
+      const cont = document.getElementById('listaApuntes');
+      cont.innerHTML = '';
+      const apuntes = (f.apuntesMedico || []).slice().reverse();
+      if (apuntes.length === 0) {
+        const p = document.createElement('div');
+        p.style.color = '#a0a0c0';
+        p.textContent = 'Aún no hay apuntes.';
+        cont.appendChild(p);
+        return;
+      }
+      apuntes.forEach((a) => {
+        const item = document.createElement('div');
+        item.style.cssText = 'border-bottom:1px solid #303050; padding:6px 0;';
+        const fecha = document.createElement('div');
+        fecha.style.cssText = 'font-size:0.7rem; color:#a0a0c0;';
+        fecha.textContent = new Date(a.fecha).toLocaleString('es-CO');
+        const texto = document.createElement('div');
+        texto.style.whiteSpace = 'pre-wrap';
+        texto.textContent = a.texto;
+        item.appendChild(fecha);
+        item.appendChild(texto);
+        cont.appendChild(item);
+      });
+    }
+
+    async function abrirModalHistorialDiagnostico(cedula) {
+      const found = obtenerBasePacientes().find(p => String(p.paciente.documento) === String(cedula));
+      if (!found) return;
+      historialCedulaActual = String(cedula);
+      vitalesVisibles = 100;
+      document.getElementById('historialModalTitle').innerText = `Historia clínica — ${found.paciente.nombres} ${found.paciente.apellidos}`;
+      renderHistoriaClinica(found);
+      renderApuntes(found);
+      renderTerapias(found);
+      renderMonitoreo();
+      document.getElementById('historialClinicoModal').style.display = 'flex';
+
+      // Los datos guardados (signos vitales y eventos) se piden al servidor
+      try {
+        const r = await api('/api/pacientes/' + encodeURIComponent(cedula) + '/historial');
+        if (r.ok) {
+          historialCache[String(cedula)] = await r.json();
+        }
+      } catch (e) {
+        console.warn('No se pudo cargar el historial:', e);
+      }
+      if (historialCedulaActual === String(cedula)) renderMonitoreo();
+    }
+
+    function cerrarModalHistorial() {
+      document.getElementById('historialClinicoModal').style.display = 'none';
+    }
+
+    /* Obtiene cámara y micrófono del médico. Si este equipo no tiene
+       cámara, intenta solo micrófono; si tampoco, queda en modo solo-recibir. */
+    async function prepararMediosMedico() {
+      if (streamMedicoActivo) return;
+
+      const docVid = document.getElementById('doctorLiveVideo');
+      const docOverlay = document.getElementById('doctorCallOverlay');
+      const btnToggle = document.getElementById('btnToggleMedicoCam');
+
+      let stream = null;
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        const intentos = [
+          { video: true, audio: true },
+          { video: false, audio: true },
+          { video: true, audio: false }
+        ];
+        for (const c of intentos) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia(c);
+            break;
+          } catch (err) {
+            console.warn('Medios del médico no disponibles con', JSON.stringify(c), err.name);
+          }
+        }
+      }
+
+      streamMedicoActivo = stream;
+
+      if (stream && stream.getVideoTracks().length) {
+        docVid.srcObject = stream;
+        docVid.style.display = 'block';
+        docOverlay.style.display = 'none';
+        btnToggle.innerText = '🔇 Apagar Cámara Médico';
+      } else {
+        docVid.style.display = 'none';
+        docOverlay.style.display = 'block';
+        docOverlay.innerHTML = '<p>Este equipo no tiene cámara disponible.<br>Verás y escucharás al paciente' +
+          (stream ? ' y él te escuchará a ti.' : ' sin enviar audio ni video.') + '</p>';
+      }
+    }
+
+    function colgarLlamadaActual() {
+      if (socket && socket.connected && pacienteEnLlamadaActual) {
+        socket.emit('doctor:hangup', { cedula: pacienteEnLlamadaActual });
+      }
+      cerrarConexionWebRTC();
+    }
+
+    async function abrirEntradaTerapiaEnVivo(cedula) {
+      cedula = String(cedula);
+
+      if (!socket || !socket.connected) {
+        alert('Sin conexión en tiempo real con el servidor. Espera unos segundos y vuelve a intentar.\n\nDirección actual: ' + location.origin);
+        return;
+      }
+
+      // Ya hay una llamada en curso con este mismo paciente: solo mostrar la ventana
+      if (peerConnection && pacienteEnLlamadaActual === cedula) {
+        document.getElementById('liveCallModal').style.display = 'flex';
+        return;
+      }
+
+      if (pacienteEnLlamadaActual && pacienteEnLlamadaActual !== cedula) {
+        colgarLlamadaActual();
+      }
+
+      pacienteEnLlamadaActual = cedula;
+
+      const ficha = obtenerBasePacientes().find(p => String(p.paciente.documento) === cedula);
+      let nombre = 'Paciente';
+      if (ficha) nombre = `${ficha.paciente.nombres} ${ficha.paciente.apellidos}`;
+      else if (alertaActual && String(alertaActual.cedula) === cedula && alertaActual.nombre) nombre = alertaActual.nombre;
+
+      document.getElementById('callPatientTitle').innerText = `Paciente: ${nombre} (${cedula})`;
+      document.getElementById('liveCallModal').style.display = 'flex';
+
+      pintarMetricas(ultimasMetricas[cedula] || null);
+      abrirEspejo('espejoFrame', 'espejoBox', cedula);
+      mostrarEstadoPaciente('Preparando equipo médico...');
+      await prepararMediosMedico();
+
+      if (pacienteEnLlamadaActual !== cedula) return; // se cerró mientras tanto
+
+      mostrarEstadoPaciente('Llamando al paciente... debe aceptar en la pantalla del paciente.');
+      socket.emit('doctor:call-request', { cedula: cedula });
+    }
+
+    /* Activa / oculta la cámara del médico sin cortar la llamada */
+    async function alternarVistaMedicoEnVivo() {
+      const docVid = document.getElementById('doctorLiveVideo');
+      const docOverlay = document.getElementById('doctorCallOverlay');
+      const btnToggle = document.getElementById('btnToggleMedicoCam');
+
+      const pista = streamMedicoActivo ? streamMedicoActivo.getVideoTracks()[0] : null;
+
+      if (!pista) {
+        alert('Este equipo no tiene cámara disponible (o no se dio el permiso). Puedes ver y escuchar al paciente sin enviar video.');
+        return;
+      }
+
+      pista.enabled = !pista.enabled;
+
+      if (pista.enabled) {
+        docVid.style.display = 'block';
+        docOverlay.style.display = 'none';
+        btnToggle.innerText = '🔇 Apagar Cámara Médico';
+      } else {
+        docVid.style.display = 'none';
+        docOverlay.style.display = 'block';
+        docOverlay.innerHTML = '<p>Cámara médica apagada.<br>Haz clic en <strong>"Activar/Ocultar Cámara Médico"</strong>.</p>';
+        btnToggle.innerText = '👨‍⚕️ Activar/Ocultar Cámara Médico';
+      }
+    }
+
+    function cerrarSesionEnVivo() {
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      cerrarEspejo('espejoFrame');
+      colgarLlamadaActual();
+
+      if (streamMedicoActivo) {
+        streamMedicoActivo.getTracks().forEach(t => t.stop());
+        streamMedicoActivo = null;
+      }
+
+      const docVid = document.getElementById('doctorLiveVideo');
+      docVid.srcObject = null;
+      docVid.style.display = 'none';
+
+      const docOverlay = document.getElementById('doctorCallOverlay');
+      docOverlay.style.display = 'block';
+      docOverlay.innerHTML = '<p>Cámara médica inactiva.<br>Haz clic en <strong>"Activar/Ocultar Cámara Médico"</strong>.</p>';
+      document.getElementById('btnToggleMedicoCam').innerText = '👨‍⚕️ Activar/Ocultar Cámara Médico';
+
+      pacienteEnLlamadaActual = null;
+      mostrarEstadoPaciente('Esperando flujo del paciente...');
+      document.getElementById('mEstadoLlamada').innerText = 'Sin llamada';
+      document.getElementById('liveCallModal').style.display = 'none';
+    }
+
+    function eliminarPaciente(cedula) {
+      if (!confirm("¿Eliminar paciente? Se borrará también su historia clínica y sus lecturas guardadas.")) return;
+      const ced = String(cedula);
+      baseCache = baseCache.filter(p => String(p.paciente.documento) !== ced);
+      delete enviadoAlServidor[ced];
+      delete historialCache[ced];
+      espejarLocal();
+      api('/api/pacientes/' + encodeURIComponent(ced), { method: 'DELETE' }).catch(() => {
+        alert('No se pudo eliminar en el servidor. Intenta de nuevo.');
+      });
+      renderizarListaPacientes();
+    }
+  </script>
+</body>
+</html>
